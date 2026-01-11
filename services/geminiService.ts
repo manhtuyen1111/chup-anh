@@ -1,10 +1,11 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+import { GoogleGenAI } from "@google/genai";
 
 export async function analyzeContainerRepair(base64Image: string) {
   try {
+    // Initialize AI right before use to ensure process.env is ready
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
@@ -16,12 +17,12 @@ export async function analyzeContainerRepair(base64Image: string) {
             },
           },
           {
-            text: `Bạn là chuyên gia kiểm định container. Hãy phân tích hình ảnh sửa chữa này. 
+            text: `Bạn là chuyên gia kiểm định container của MATRAN MNR. Hãy phân tích hình ảnh sửa chữa này. 
             Xác định: 
             1. Loại hư hỏng/sửa chữa (ví dụ: hàn, vá tấm, sơn lại, thay gioăng).
             2. Đánh giá chất lượng sửa chữa (Tốt/Cần làm lại).
             3. Mã số container nếu nhìn thấy.
-            Trả về kết quả bằng tiếng Việt một cách chuyên nghiệp.`
+            Trả về kết quả bằng tiếng Việt một cách chuyên nghiệp, ngắn gọn.`
           }
         ]
       }
