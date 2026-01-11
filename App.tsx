@@ -12,32 +12,37 @@ const MAERSK_PREFIXES = [
 
 const APPS_SCRIPT_TEMPLATE = `// Google Apps Script để lưu ảnh vào Google Drive
 function doPost(e) {
-  var data = JSON.parse(e.postData.contents);
-  var folder = DriveApp.getFolderById("ID_THU_MUC_CUA_BAN");
-  
-  // Tạo cây thư mục theo cấu hình
-  var subFolderName = data.path; // ví dụ: "2024-03-20/MAEU1234567"
-  var parts = subFolderName.split('/');
-  var currentFolder = folder;
-  
-  for (var i = 0; i < parts.length; i++) {
-    var folders = currentFolder.getFoldersByName(parts[i]);
-    if (folders.hasNext()) {
-      currentFolder = folders.next();
-    } else {
-      currentFolder = currentFolder.createFolder(parts[i]);
+  try {
+    var data = JSON.parse(e.postData.contents);
+    // Thay ID thư mục của bạn vào đây
+    var folder = DriveApp.getFolderById("ID_THU_MUC_CUA_BAN");
+    
+    // Tạo cấu trúc thư mục
+    var subFolderName = data.path; // VD: "2024-03-20/MAEU1234567"
+    var parts = subFolderName.split('/');
+    var currentFolder = folder;
+    
+    for (var i = 0; i < parts.length; i++) {
+      var folders = currentFolder.getFoldersByName(parts[i]);
+      if (folders.hasNext()) {
+        currentFolder = folders.next();
+      } else {
+        currentFolder = currentFolder.createFolder(parts[i]);
+      }
     }
+    
+    // Lưu ảnh
+    data.photos.forEach(function(photo, index) {
+      var contentType = photo.base64.split(",")[0].split(":")[1].split(";")[0];
+      var bytes = Utilities.base64Decode(photo.base64.split(",")[1]);
+      var blob = Utilities.newBlob(bytes, contentType, "QC_" + index + ".jpg");
+      currentFolder.createFile(blob);
+    });
+    
+    return ContentService.createTextOutput("SUCCESS").setMimeType(ContentService.MimeType.TEXT);
+  } catch(err) {
+    return ContentService.createTextOutput("ERROR: " + err.toString()).setMimeType(ContentService.MimeType.TEXT);
   }
-  
-  // Lưu các tệp tin
-  data.photos.forEach(function(photo, index) {
-    var contentType = photo.base64.split(",")[0].split(":")[1].split(";")[0];
-    var bytes = Utilities.base64Decode(photo.base64.split(",")[1]);
-    var blob = Utilities.newBlob(bytes, contentType, "photo_" + index + ".jpg");
-    currentFolder.createFile(blob);
-  });
-  
-  return ContentService.createTextOutput("OK").setMimeType(ContentService.MimeType.TEXT);
 }`;
 
 const MOCK_HISTORY: CompletedInspection[] = [
@@ -47,7 +52,7 @@ const MOCK_HISTORY: CompletedInspection[] = [
 ];
 
 const Header: React.FC<{ onReset: () => void; onSettings: () => void; date: string; time: string }> = ({ onReset, onSettings, date, time }) => (
-  <header className="bg-[#1e3a8a] text-white px-4 py-3 flex justify-between items-center shadow-md">
+  <header className="bg-[#1e3a8a] text-white px-4 py-3 flex justify-between items-center shadow-md shrink-0">
     <div className="flex items-center gap-2 cursor-pointer" onClick={onReset}>
       <div className="bg-white p-1 rounded">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-[#1e3a8a]" viewBox="0 0 24 24" fill="currentColor">
@@ -60,7 +65,7 @@ const Header: React.FC<{ onReset: () => void; onSettings: () => void; date: stri
       </div>
     </div>
     <div className="flex items-center gap-4">
-      <div className="text-right hidden sm:block">
+      <div className="text-right hidden xs:block">
         <p className="text-[10px] font-bold opacity-80">{date}</p>
         <p className="text-[12px] font-mono font-bold text-sky-300">{time}</p>
       </div>
@@ -118,14 +123,14 @@ export default function App() {
     const newId = formatContainerId(prefix + currentNumber);
     setFormData({ ...formData, containerId: newId });
     
-    // Tự động focus lại input và đưa con trỏ về cuối để người dùng gõ tiếp số
+    // Tự động focus lại để gõ tiếp số
     setTimeout(() => {
       if (containerInputRef.current) {
         containerInputRef.current.focus();
         const length = newId.length;
         containerInputRef.current.setSelectionRange(length, length);
       }
-    }, 50);
+    }, 10);
   };
 
   const filteredHistory = useMemo(() => {
@@ -210,14 +215,14 @@ export default function App() {
       .replace('{DATE}', dateStr)
       .replace('{CONT_ID}', formData.containerId.replace(' ', ''));
     
-    setUploadStatus(`Thư mục: ${driveConfig.folderName}/${path}`);
-    await new Promise(r => setTimeout(r, 800));
+    setUploadStatus(`Gửi tới: ${driveConfig.folderName}/${path}`);
+    await new Promise(r => setTimeout(r, 500));
     
-    for (let i = 0; i <= 100; i += 20) {
+    for (let i = 0; i <= 100; i += 25) {
       setUploadProgress(i);
-      if (i === 40) setUploadStatus(`Đang truyền tải ${photos.length} hình ảnh...`);
-      if (i === 80) setUploadStatus(`Đang xác nhận dữ liệu Maersk Cloud...`);
-      await new Promise(r => setTimeout(r, 150));
+      if (i === 50) setUploadStatus(`Đang nén ${photos.length} hình ảnh...`);
+      if (i === 75) setUploadStatus(`Đang xác nhận Maersk Cloud...`);
+      await new Promise(r => setTimeout(r, 200));
     }
 
     setHistory(prev => [{ ...formData, id: Date.now().toString(), photoCount: photos.length, timestamp: new Date().toISOString() }, ...prev]);
@@ -235,10 +240,10 @@ export default function App() {
   const displayTime = currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
-    <div className="min-h-screen flex flex-col max-w-lg mx-auto bg-[#f1f5f9] text-slate-800 font-sans shadow-xl border-x border-slate-200 overflow-hidden">
+    <div className="h-screen flex flex-col max-w-lg mx-auto bg-[#f1f5f9] text-slate-800 font-sans shadow-xl border-x border-slate-200">
       <Header onReset={reset} onSettings={() => setStep(AppStep.SETTINGS)} date={displayDate} time={displayTime} />
 
-      <main className="flex-1 p-4 overflow-y-auto pb-24">
+      <main className="flex-1 overflow-y-auto pb-24 p-4">
         
         {step === AppStep.FORM && (
           <div className="space-y-6 animate-fadeIn">
@@ -246,15 +251,15 @@ export default function App() {
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#1e3a8a] animate-pulse"></span>
-                Terminal: Matran MNR Engine
+                Terminal: Matran Engine
               </div>
-              <div className="text-blue-800">Maersk QC Standard</div>
+              <div className="text-blue-800 italic">Maersk QC Standard</div>
             </div>
 
-            {/* Container ID Input with Maersk Prefixes */}
+            {/* Container ID Input */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Số Container (VD: MAEU 1234567)</label>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Số hiệu Container (4 chữ + 7 số)</label>
                 <input 
                   ref={containerInputRef}
                   type="text" 
@@ -267,16 +272,16 @@ export default function App() {
               </div>
 
               <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Gợi ý Prefix Maersk (Sắp xếp ABC):</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Prefix Maersk chuẩn (Sắp xếp ABC):</p>
                 <div className="grid grid-cols-4 gap-2">
                   {MAERSK_PREFIXES.map(pref => (
                     <button 
                       key={pref} 
                       onClick={() => handlePrefixClick(pref)}
-                      className={`px-2 py-2.5 rounded-md text-[11px] font-bold border transition-all active:scale-90 ${
+                      className={`px-1 py-2.5 rounded-md text-[11px] font-bold border transition-all active:scale-90 ${
                         formData.containerId.startsWith(pref) 
                         ? 'bg-[#1e3a8a] text-white border-[#1e3a8a]' 
-                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400 shadow-sm'
+                        : 'bg-white text-slate-500 border-slate-200 shadow-sm hover:border-blue-400'
                       }`}
                     >
                       {pref}
@@ -288,13 +293,13 @@ export default function App() {
 
             {/* Team Selection */}
             <div className="space-y-3">
-              <label className="block text-[12px] font-bold text-slate-500 uppercase tracking-wider">Tổ đội nghiệm thu</label>
+              <label className="block text-[12px] font-bold text-slate-500 uppercase tracking-wider">Tổ đội thực hiện</label>
               <div className="grid grid-cols-2 gap-3">
                 {TEAMS.map(team => (
                   <button
                     key={team}
                     onClick={() => setFormData({...formData, team})}
-                    className={`relative py-5 px-4 rounded-xl border-2 font-bold text-lg transition-all flex items-center justify-center gap-2 active:scale-[0.98] ${
+                    className={`relative py-5 px-4 rounded-xl border-2 font-bold text-lg transition-all flex items-center justify-center gap-2 active:scale-95 ${
                       formData.team === team 
                       ? 'bg-[#1e3a8a] border-[#1e3a8a] text-white shadow-md' 
                       : 'bg-white border-slate-200 text-slate-400 hover:border-slate-300 shadow-sm'
@@ -302,8 +307,8 @@ export default function App() {
                   >
                     {team}
                     {formData.team === team && (
-                      <div className="bg-green-500 rounded-full p-0.5 shadow-sm">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                      <div className="bg-green-500 rounded-full p-1 shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 text-white" viewBox="0 0 24 24" fill="currentColor">
                           <path fillRule="evenodd" d="M19.916 4.626a.75.75 0 01.208 1.04l-9 13.5a.75.75 0 01-1.154.114l-6-6a.75.75 0 011.06-1.06l5.353 5.353 8.493-12.739a.75.75 0 011.04-.208z" clipRule="evenodd" />
                         </svg>
                       </div>
@@ -318,7 +323,7 @@ export default function App() {
               onClick={startCamera}
               className="w-full bg-[#1e3a8a] text-white font-bold py-5 rounded-xl shadow-lg shadow-blue-900/20 text-xl uppercase tracking-wider flex items-center justify-center gap-3 active:scale-[0.98] transition-all disabled:opacity-40 mt-4"
             >
-              Tiếp tục chụp ảnh
+              Tiến hành chụp ảnh
             </button>
           </div>
         )}
@@ -326,34 +331,33 @@ export default function App() {
         {step === AppStep.SETTINGS && (
           <div className="space-y-6 animate-fadeIn pb-10">
             <div className="flex items-center gap-3 mb-4">
-               <button onClick={() => setStep(AppStep.FORM)} className="p-2 bg-slate-200 rounded-lg active:scale-90">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+               <button onClick={() => setStep(AppStep.FORM)} className="p-2 bg-slate-200 rounded-lg active:scale-90 shadow-sm">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-600" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M9.707 16.707a1.001 1.001 0 01-1.414 0l-6-6a1.001 1.001 0 010-1.414l6-6a1.001 1.001 0 111.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1.001 1.001 0 010 1.414z" clipRule="evenodd" />
                   </svg>
                </button>
-               <h2 className="text-xl font-black text-[#1e3a8a] uppercase italic">Cấu hình hệ thống</h2>
+               <h2 className="text-xl font-black text-[#1e3a8a] uppercase italic">Quản trị hệ thống</h2>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="bg-slate-50 border-b border-slate-200 p-4 font-bold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M11.5 1h-7A2.5 2.5 0 0 0 2 3.5v17A2.5 2.5 0 0 0 4.5 23h15a2.5 2.5 0 0 0 2.5-2.5v-12L16.5 1h-5zM15 3l5 5h-5V3z" /></svg>
-                 Thông tin lưu trữ
+                 Cấu hình Google Drive Storage
               </div>
               <div className="p-5 space-y-4">
                 <div className="space-y-1">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase">Tên thư mục đích (Root)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase">Tên thư mục gốc</label>
                    <input 
                       type="text" 
-                      className="w-full p-2.5 border border-slate-200 rounded bg-slate-50 font-mono text-sm focus:bg-white transition-all outline-none focus:border-blue-300"
+                      className="w-full p-2.5 border border-slate-200 rounded bg-slate-50 font-mono text-sm focus:bg-white outline-none focus:border-blue-300"
                       value={driveConfig.folderName}
                       onChange={e => setDriveConfig({...driveConfig, folderName: e.target.value})}
                    />
                 </div>
                 <div className="space-y-1">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase">Cấu trúc đường dẫn (Path)</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase">Cấu trúc thư mục con</label>
                    <input 
                       type="text" 
-                      className="w-full p-2.5 border border-slate-200 rounded bg-slate-50 font-mono text-sm focus:bg-white transition-all outline-none focus:border-blue-300"
+                      className="w-full p-2.5 border border-slate-200 rounded bg-slate-50 font-mono text-sm focus:bg-white outline-none focus:border-blue-300"
                       value={driveConfig.pathFormat}
                       onChange={e => setDriveConfig({...driveConfig, pathFormat: e.target.value})}
                    />
@@ -361,34 +365,31 @@ export default function App() {
               </div>
             </div>
 
-            {/* HƯỚNG DẪN CẤU HÌNH DRIVE */}
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="bg-[#1e3a8a] text-white p-4 font-bold text-xs uppercase tracking-wider flex items-center justify-between">
-                <span>Hướng dẫn cấu hình Drive</span>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" /></svg>
+                <span>Hướng dẫn cấu hình Cloud</span>
               </div>
               <div className="p-5 space-y-4 text-[13px] leading-relaxed">
-                <p>Ứng dụng sử dụng <b>Google Apps Script</b> để làm trung gian tải ảnh lên Drive:</p>
+                <p>Ứng dụng cần <b>Google Apps Script</b> để nạp ảnh vào Drive:</p>
                 <ol className="list-decimal pl-4 space-y-2 font-medium text-slate-600">
-                  <li>Truy cập <a href="https://script.google.com" target="_blank" className="text-blue-600 underline">script.google.com</a>.</li>
-                  <li>Tạo "Dự án mới" và dán mã bên dưới vào tệp <code>Code.gs</code>.</li>
-                  <li>Lấy ID thư mục Drive của bạn và thay vào mã script.</li>
-                  <li>Nhấn "Triển khai" -> "Tùy chọn triển khai mới" -> "Ứng dụng web".</li>
-                  <li>Chọn "Ai có quyền truy cập": <b>Bất kỳ ai (Anyone)</b>.</li>
+                  <li>Mở <a href="https://script.google.com" target="_blank" className="text-blue-600 underline font-bold italic">Google Apps Script</a>.</li>
+                  <li>Dán mã Script bên dưới vào tệp <code>Code.gs</code>.</li>
+                  <li>Lấy ID thư mục Drive thay vào dòng 6.</li>
+                  <li>Triển khai Web App (Quyền: Anyone).</li>
                 </ol>
                 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block">Mã nguồn Scripts (Copy):</label>
-                  <div className="relative group">
-                    <pre className="bg-slate-900 text-sky-400 p-4 rounded-lg text-[10px] overflow-x-auto border border-black max-h-60 overflow-y-auto font-mono scrollbar-thin">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase block">Script xử lý (Copy):</label>
+                  <div className="relative">
+                    <pre className="bg-slate-900 text-sky-400 p-4 rounded-lg text-[9px] overflow-x-auto border border-black max-h-64 overflow-y-auto font-mono scrollbar-thin">
                       {APPS_SCRIPT_TEMPLATE}
                     </pre>
                     <button 
                       onClick={() => {
                         navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE);
-                        alert("Đã copy mã Script!");
+                        alert("Đã sao chép Script!");
                       }}
-                      className="absolute top-2 right-2 bg-white/10 hover:bg-white/30 text-white px-3 py-1.5 rounded text-[9px] uppercase font-bold backdrop-blur-md transition-all active:scale-95"
+                      className="absolute top-2 right-2 bg-white/10 hover:bg-white/30 text-white px-3 py-1.5 rounded text-[9px] uppercase font-bold backdrop-blur-md transition-all active:scale-95 border border-white/20"
                     >
                       Copy Script
                     </button>
@@ -397,36 +398,35 @@ export default function App() {
               </div>
             </div>
 
-            <button onClick={() => setStep(AppStep.FORM)} className="w-full bg-[#1e3a8a] text-white font-bold py-4 rounded-xl shadow-lg uppercase tracking-widest text-sm">Quay lại Tác nghiệp</button>
+            <button onClick={() => setStep(AppStep.FORM)} className="w-full bg-[#1e3a8a] text-white font-bold py-4 rounded-xl shadow-lg uppercase tracking-widest text-sm">Lưu & Quay lại</button>
           </div>
         )}
 
         {step === AppStep.CAMERA && (
           <div className="fixed inset-0 bg-black z-[100] flex flex-col">
-            <div className="relative flex-1 bg-black">
+            <div className="relative flex-1 bg-black overflow-hidden">
               <video ref={videoRef} autoPlay playsInline className="w-full h-full object-contain" />
               <div className="absolute top-6 left-6 right-6 flex justify-between items-start pointer-events-none">
                 <div className="bg-black/60 border border-white/20 text-white p-3 rounded-lg backdrop-blur-md">
-                  <div className="text-[10px] font-bold opacity-70 uppercase mb-0.5">Mã số Container</div>
+                  <div className="text-[10px] font-bold opacity-70 uppercase mb-0.5">Số hiệu Container</div>
                   <div className="font-mono text-2xl font-bold tracking-widest">{formData.containerId}</div>
                   <div className="flex gap-4 mt-2">
-                    <span className="text-[11px] font-bold bg-[#1e3a8a] px-2 py-0.5 rounded">{formData.team}</span>
-                    <span className="text-[11px] font-mono opacity-80">{displayTime}</span>
+                    <span className="text-[11px] font-bold bg-[#1e3a8a] px-2 py-0.5 rounded shadow-sm">{formData.team}</span>
                   </div>
                 </div>
-                <button onClick={stopCamera} className="bg-red-600 text-white p-3 rounded-lg pointer-events-auto active:scale-90 shadow-lg">
+                <button onClick={stopCamera} className="bg-red-600 text-white p-3 rounded-lg pointer-events-auto active:scale-90 shadow-xl border border-red-500">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
             </div>
-            <div className="h-40 bg-slate-900 flex items-center justify-around px-8">
-              <div className="w-16 h-16 rounded-lg border-2 border-white/20 overflow-hidden bg-black/40 shadow-inner">
-                {photos.length > 0 && <img src={photos[photos.length-1].base64} className="w-full h-full object-cover" />}
+            <div className="h-40 bg-slate-900 flex items-center justify-around px-8 border-t border-slate-800">
+              <div className="w-16 h-16 rounded-lg border-2 border-white/10 overflow-hidden bg-black/40 shadow-inner flex items-center justify-center">
+                {photos.length > 0 ? <img src={photos[photos.length-1].base64} className="w-full h-full object-cover" /> : <div className="text-slate-600 font-black text-xl">QC</div>}
               </div>
               <button onClick={capturePhoto} className="w-20 h-20 bg-white rounded-full flex items-center justify-center active:scale-95 border-[6px] border-slate-700 shadow-2xl transition-transform">
-                <div className="w-14 h-14 rounded-full border-2 border-slate-200"></div>
+                <div className="w-14 h-14 rounded-full border-2 border-slate-300"></div>
               </button>
-              <button onClick={stopCamera} className="w-16 h-16 bg-[#1e3a8a] rounded-xl flex items-center justify-center text-white active:scale-90 shadow-lg">
+              <button onClick={stopCamera} className="w-16 h-16 bg-[#1e3a8a] rounded-xl flex items-center justify-center text-white active:scale-90 shadow-lg border border-blue-500">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
               </button>
             </div>
@@ -436,46 +436,49 @@ export default function App() {
 
         {step === AppStep.REVIEW && (
           <div className="space-y-6 animate-fadeIn">
-            <div className="bg-white p-5 rounded-xl border border-slate-200 flex justify-between items-start shadow-sm">
+            <div className="bg-white p-5 rounded-xl border border-slate-200 flex justify-between items-start shadow-sm relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full -mr-16 -mt-16 -z-10 opacity-50"></div>
               <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Xác nhận nghiệm thu</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Kiểm tra thông tin</label>
                 <h2 className="text-3xl font-mono font-bold text-slate-900">{formData.containerId}</h2>
                 <div className="flex gap-3 mt-2">
-                   <span className="text-[12px] font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded uppercase">Tổ: {formData.team}</span>
+                   <span className="text-[12px] font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded uppercase border border-blue-100 shadow-sm">Tổ: {formData.team}</span>
                 </div>
               </div>
-              <button onClick={() => setStep(AppStep.FORM)} className="text-blue-700 text-[11px] font-bold uppercase border-b border-blue-700 active:opacity-60 transition-opacity">Thay đổi</button>
+              <button onClick={() => setStep(AppStep.FORM)} className="text-blue-700 text-[11px] font-bold uppercase border-b border-blue-700 active:opacity-60 transition-opacity">Sửa số</button>
             </div>
             <div className="grid grid-cols-2 gap-3">
               {photos.map(p => (
-                <div key={p.id} className="bg-white rounded-lg overflow-hidden border border-slate-200 relative aspect-square shadow-sm">
+                <div key={p.id} className="bg-white rounded-lg overflow-hidden border border-slate-200 relative aspect-square shadow-sm group">
                   <img src={p.base64} className="w-full h-full object-cover" />
-                  <button onClick={() => setPhotos(x => x.filter(a => a.id !== p.id))} className="absolute top-2 right-2 bg-red-600 text-white p-1.5 rounded-md shadow-lg active:scale-90">
+                  <button onClick={() => setPhotos(x => x.filter(a => a.id !== p.id))} className="absolute top-2 right-2 bg-red-600 text-white p-1.5 rounded-md shadow-lg active:scale-90 transition-all">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
               ))}
-              <button onClick={startCamera} className="aspect-square border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 bg-slate-50 hover:bg-white transition-colors active:scale-95">
+              <button onClick={startCamera} className="aspect-square border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 bg-slate-50 hover:bg-white transition-colors active:scale-95 shadow-inner">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                <span className="text-[10px] font-bold uppercase">Chụp thêm</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest">Chụp thêm</span>
               </button>
             </div>
             <button onClick={simulateUpload} className="w-full bg-green-600 text-white font-bold py-5 rounded-xl shadow-lg text-lg uppercase tracking-wider flex items-center justify-center gap-3 active:scale-[0.98] transition-transform">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              Gửi lên Google Drive
+              Đồng bộ Drive
             </button>
           </div>
         )}
 
         {step === AppStep.UPLOADING && (
           <div className="flex flex-col items-center justify-center h-full space-y-8 animate-fadeIn text-center py-10">
-            <div className="w-48 h-48 border-[12px] border-slate-100 border-t-[#1e3a8a] rounded-full animate-spin transition-all shadow-inner" />
+            <div className="w-48 h-48 border-[12px] border-slate-100 border-t-[#1e3a8a] rounded-full animate-spin transition-all shadow-inner relative">
+               <div className="absolute inset-0 flex items-center justify-center font-black text-2xl text-[#1e3a8a]">{uploadProgress}%</div>
+            </div>
             <div className="space-y-4 max-w-xs w-full px-6">
-              <h2 className="text-2xl font-bold text-slate-900 uppercase">Đang đồng bộ...</h2>
-              <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden shadow-inner">
+              <h2 className="text-2xl font-bold text-slate-900 uppercase italic">Đang đồng bộ Maersk Cloud</h2>
+              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden shadow-inner">
                 <div className="bg-[#1e3a8a] h-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
               </div>
-              <p className="text-xs font-bold text-slate-500 font-mono leading-relaxed bg-white/50 p-3 rounded-lg border border-slate-100">{uploadStatus}</p>
+              <p className="text-[10px] font-bold text-slate-500 font-mono leading-relaxed bg-white/80 p-3 rounded-lg border border-slate-100 shadow-sm break-all">{uploadStatus}</p>
             </div>
           </div>
         )}
@@ -486,10 +489,10 @@ export default function App() {
               <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>
             </div>
             <div className="space-y-2">
-              <h2 className="text-3xl font-black text-slate-900 uppercase italic">Gửi Maersk Thành Công</h2>
-              <p className="text-slate-500 text-sm">Toàn bộ hình ảnh đã được lưu vào Matran MNR Cloud.</p>
+              <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tight">Hoàn tất Nghiệm thu</h2>
+              <p className="text-slate-500 text-sm leading-relaxed px-6 font-medium">Hình ảnh container <span className="text-[#1e3a8a] font-bold">{formData.containerId}</span> đã được đẩy lên Google Drive.</p>
             </div>
-            <button onClick={reset} className="w-full bg-[#1e3a8a] text-white font-bold py-5 rounded-xl text-lg uppercase shadow-lg active:scale-[0.98] transition-all">Lượt nghiệm thu mới</button>
+            <button onClick={reset} className="w-full bg-[#1e3a8a] text-white font-bold py-5 rounded-xl text-lg uppercase shadow-lg active:scale-[0.98] transition-all border border-blue-400">Tiếp tục container mới</button>
           </div>
         )}
 
@@ -506,8 +509,8 @@ export default function App() {
                   <button
                     key={f}
                     onClick={() => setFilter(f as any)}
-                    className={`py-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all border active:scale-95 ${
-                      filter === f ? 'bg-[#1e3a8a] text-white border-[#1e3a8a] shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200 shadow-sm'
+                    className={`py-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all border active:scale-95 shadow-sm ${
+                      filter === f ? 'bg-[#1e3a8a] text-white border-[#1e3a8a] shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'
                     }`}
                   >
                     {f === 'today' ? 'Hôm nay' : f === 'yesterday' ? 'Hôm qua' : f === 'month' ? 'Tháng này' : 'Tháng trước'}
@@ -516,7 +519,7 @@ export default function App() {
               </div>
               <button 
                 onClick={() => setFilter('custom')}
-                className={`w-full py-3 rounded-lg text-[11px] font-bold uppercase border transition-all active:scale-95 ${filter === 'custom' ? 'bg-[#1e3a8a] text-white border-[#1e3a8a] shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200 shadow-sm'}`}
+                className={`w-full py-3 rounded-lg text-[11px] font-bold uppercase border transition-all active:scale-95 shadow-sm ${filter === 'custom' ? 'bg-[#1e3a8a] text-white border-[#1e3a8a] shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
               >
                 Lọc theo khoảng ngày
               </button>
@@ -550,16 +553,16 @@ export default function App() {
             <div className="bg-[#1e3a8a] p-8 rounded-2xl text-white shadow-xl flex items-center justify-between border-4 border-white/10 relative overflow-hidden group">
                <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/5 rounded-full group-hover:scale-150 transition-transform duration-700"></div>
                <div className="space-y-1 relative z-10">
-                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Sản lượng kì này</p>
+                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Sản lượng nghiệm thu</p>
                   <h3 className="text-6xl font-black tabular-nums">{totalCompleted}</h3>
                </div>
                <div className="text-right relative z-10">
-                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Container</p>
+                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Cont</p>
                </div>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm mb-10">
-              <div className="bg-slate-50 border-b border-slate-200 p-4 font-bold text-xs uppercase tracking-wider text-slate-500">Hiệu suất theo tổ đội</div>
+              <div className="bg-slate-50 border-b border-slate-200 p-4 font-bold text-xs uppercase tracking-wider text-slate-500">Hiệu suất tổ đội</div>
               <div className="divide-y divide-slate-100">
                 {teamStats.map(team => (
                   <div key={team.name} className="p-5 flex flex-col gap-3 hover:bg-slate-50 transition-colors">
@@ -578,7 +581,7 @@ export default function App() {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white flex justify-around items-center border-t border-slate-200 h-16 shadow-[0_-10px_25px_rgba(0,0,0,0.06)] z-50">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white flex justify-around items-center border-t border-slate-200 h-16 shadow-[0_-10px_25px_rgba(0,0,0,0.06)] z-[60] shrink-0">
          <button onClick={reset} className={`flex flex-col items-center gap-1 transition-all flex-1 py-2 active:scale-90 ${step === AppStep.FORM ? 'text-[#1e3a8a]' : 'text-slate-400'}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
             <span className="text-[10px] font-bold uppercase tracking-tighter">Tác nghiệp</span>
@@ -605,7 +608,7 @@ export default function App() {
         .animate-bounce-short { animation: bounceShort 1s ease-in-out infinite; }
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        body { -webkit-tap-highlight-color: transparent; background-color: #f8fafc; overflow-x: hidden; }
+        body { -webkit-tap-highlight-color: transparent; background-color: #f8fafc; overflow: hidden; overscroll-behavior: none; }
         input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; }
       `}</style>
     </div>
