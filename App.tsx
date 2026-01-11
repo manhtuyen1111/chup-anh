@@ -4,7 +4,6 @@ import { AppStep, InspectionData, PhotoCapture, CompletedInspection } from './ty
 import { analyzeContainerRepair } from './services/geminiService';
 
 const TEAMS = ['Tổ 1', 'Tổ 2', 'Tổ 3', 'Tổ 4'];
-// Danh sách Prefix Maersk/Sealand/Hamburg Sud tiêu chuẩn - Sắp xếp ABC
 const MAERSK_PREFIXES = [
   'HASU', 'MAEU', 'MRKU', 'MRSU', 'MSFU', 
   'MSKU', 'PONU', 'SEAU', 'SMLU', 'TCNU', 'TGHU'
@@ -14,11 +13,8 @@ const APPS_SCRIPT_TEMPLATE = `// Google Apps Script để lưu ảnh vào Google
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    // Thay ID thư mục của bạn vào đây
     var folder = DriveApp.getFolderById("ID_THU_MUC_CUA_BAN");
-    
-    // Tạo cấu trúc thư mục
-    var subFolderName = data.path; // VD: "2024-03-20/MAEU1234567"
+    var subFolderName = data.path; 
     var parts = subFolderName.split('/');
     var currentFolder = folder;
     
@@ -31,7 +27,6 @@ function doPost(e) {
       }
     }
     
-    // Lưu ảnh
     data.photos.forEach(function(photo, index) {
       var contentType = photo.base64.split(",")[0].split(":")[1].split(";")[0];
       var bytes = Utilities.base64Decode(photo.base64.split(",")[1]);
@@ -52,7 +47,7 @@ const MOCK_HISTORY: CompletedInspection[] = [
 ];
 
 const Header: React.FC<{ onReset: () => void; onSettings: () => void; date: string; time: string }> = ({ onReset, onSettings, date, time }) => (
-  <header className="bg-[#1e3a8a] text-white px-4 py-3 flex justify-between items-center shadow-md shrink-0">
+  <header className="bg-[#1e3a8a] text-white px-4 py-3 flex justify-between items-center shadow-md shrink-0 z-50">
     <div className="flex items-center gap-2 cursor-pointer" onClick={onReset}>
       <div className="bg-white p-1 rounded">
         <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-[#1e3a8a]" viewBox="0 0 24 24" fill="currentColor">
@@ -97,6 +92,7 @@ export default function App() {
   const [uploadStatus, setUploadStatus] = useState('');
   const [history, setHistory] = useState<CompletedInspection[]>(MOCK_HISTORY);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [isFlashing, setIsFlashing] = useState(false);
   
   const [filter, setFilter] = useState<'today' | 'yesterday' | 'month' | 'lastMonth' | 'custom'>('today');
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
@@ -123,14 +119,18 @@ export default function App() {
     const newId = formatContainerId(prefix + currentNumber);
     setFormData({ ...formData, containerId: newId });
     
-    // Tự động focus lại để gõ tiếp số
-    setTimeout(() => {
-      if (containerInputRef.current) {
+    // Đảm bảo bàn phím hiện lên ngay lập tức trên mobile
+    if (containerInputRef.current) {
         containerInputRef.current.focus();
-        const length = newId.length;
-        containerInputRef.current.setSelectionRange(length, length);
-      }
-    }, 10);
+        // Một số trình duyệt mobile cần delay cực nhỏ để kích hoạt bàn phím sau khi cập nhật state
+        setTimeout(() => {
+            if (containerInputRef.current) {
+                containerInputRef.current.focus();
+                const length = containerInputRef.current.value.length;
+                containerInputRef.current.setSelectionRange(length, length);
+            }
+        }, 50);
+    }
   };
 
   const filteredHistory = useMemo(() => {
@@ -178,7 +178,7 @@ export default function App() {
         videoRef.current.srcObject = stream;
         setStep(AppStep.CAMERA);
       }
-    } catch (err) { alert("Lỗi Camera: Kiểm tra quyền truy cập thiết bị."); }
+    } catch (err) { alert("Lỗi Camera: Kiểm tra quyền truy cập hoặc HTTPS."); }
   };
 
   const stopCamera = () => {
@@ -190,8 +190,8 @@ export default function App() {
   };
 
   const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
+    const video = videoRef.current;
+    if (video && video.readyState >= 2 && canvasRef.current) {
       const canvas = canvasRef.current;
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -201,10 +201,17 @@ export default function App() {
         const base64 = canvas.toDataURL('image/jpeg', 0.8);
         const newPhoto: PhotoCapture = { id: Date.now().toString(), base64, status: 'analyzing' };
         setPhotos(prev => [...prev, newPhoto]);
+        
+        // Hiệu ứng Flash khi chụp
+        setIsFlashing(true);
+        setTimeout(() => setIsFlashing(false), 150);
+
         analyzeContainerRepair(base64).then(res => {
           setPhotos(p => p.map(x => x.id === newPhoto.id ? { ...x, analysis: res, status: 'done' } : x));
         });
       }
+    } else {
+        console.warn("Camera chưa sẵn sàng hoặc canvas bị lỗi.");
     }
   };
 
@@ -240,14 +247,13 @@ export default function App() {
   const displayTime = currentTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
   return (
-    <div className="h-screen flex flex-col max-w-lg mx-auto bg-[#f1f5f9] text-slate-800 font-sans shadow-xl border-x border-slate-200">
+    <div className="h-screen flex flex-col max-w-lg mx-auto bg-[#f1f5f9] text-slate-800 font-sans shadow-xl border-x border-slate-200 overflow-hidden">
       <Header onReset={reset} onSettings={() => setStep(AppStep.SETTINGS)} date={displayDate} time={displayTime} />
 
-      <main className="flex-1 overflow-y-auto pb-24 p-4">
+      <main className="flex-1 overflow-y-auto pb-24 p-4 relative">
         
         {step === AppStep.FORM && (
           <div className="space-y-6 animate-fadeIn">
-            {/* Maersk Brand Info */}
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-[#1e3a8a] animate-pulse"></span>
@@ -256,13 +262,13 @@ export default function App() {
               <div className="text-blue-800 italic">Maersk QC Standard</div>
             </div>
 
-            {/* Container ID Input */}
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
               <div>
                 <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Số hiệu Container (4 chữ + 7 số)</label>
                 <input 
                   ref={containerInputRef}
                   type="text" 
+                  inputMode="text"
                   placeholder="MAEU 1234567"
                   className="w-full bg-slate-50 border-2 border-slate-200 rounded-lg py-4 px-4 text-3xl font-mono font-bold text-slate-900 focus:border-[#1e3a8a] focus:bg-white outline-none transition-all uppercase text-center"
                   value={formData.containerId}
@@ -277,6 +283,7 @@ export default function App() {
                   {MAERSK_PREFIXES.map(pref => (
                     <button 
                       key={pref} 
+                      type="button"
                       onClick={() => handlePrefixClick(pref)}
                       className={`px-1 py-2.5 rounded-md text-[11px] font-bold border transition-all active:scale-90 ${
                         formData.containerId.startsWith(pref) 
@@ -291,13 +298,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Team Selection */}
             <div className="space-y-3">
               <label className="block text-[12px] font-bold text-slate-500 uppercase tracking-wider">Tổ đội thực hiện</label>
               <div className="grid grid-cols-2 gap-3">
                 {TEAMS.map(team => (
                   <button
                     key={team}
+                    type="button"
                     onClick={() => setFormData({...formData, team})}
                     className={`relative py-5 px-4 rounded-xl border-2 font-bold text-lg transition-all flex items-center justify-center gap-2 active:scale-95 ${
                       formData.team === team 
@@ -336,12 +343,12 @@ export default function App() {
                     <path fillRule="evenodd" d="M9.707 16.707a1.001 1.001 0 01-1.414 0l-6-6a1.001 1.001 0 010-1.414l6-6a1.001 1.001 0 111.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1.001 1.001 0 010 1.414z" clipRule="evenodd" />
                   </svg>
                </button>
-               <h2 className="text-xl font-black text-[#1e3a8a] uppercase italic">Quản trị hệ thống</h2>
+               <h2 className="text-xl font-black text-[#1e3a8a] uppercase italic">Cấu hình</h2>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="bg-slate-50 border-b border-slate-200 p-4 font-bold text-xs uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                 Cấu hình Google Drive Storage
+                 Thông tin lưu trữ Cloud
               </div>
               <div className="p-5 space-y-4">
                 <div className="space-y-1">
@@ -354,7 +361,7 @@ export default function App() {
                    />
                 </div>
                 <div className="space-y-1">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase">Cấu trúc thư mục con</label>
+                   <label className="text-[10px] font-bold text-slate-400 uppercase">Cấu trúc đường dẫn</label>
                    <input 
                       type="text" 
                       className="w-full p-2.5 border border-slate-200 rounded bg-slate-50 font-mono text-sm focus:bg-white outline-none focus:border-blue-300"
@@ -367,21 +374,13 @@ export default function App() {
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
               <div className="bg-[#1e3a8a] text-white p-4 font-bold text-xs uppercase tracking-wider flex items-center justify-between">
-                <span>Hướng dẫn cấu hình Cloud</span>
+                <span>Hướng dẫn Google Apps Script</span>
               </div>
               <div className="p-5 space-y-4 text-[13px] leading-relaxed">
-                <p>Ứng dụng cần <b>Google Apps Script</b> để nạp ảnh vào Drive:</p>
-                <ol className="list-decimal pl-4 space-y-2 font-medium text-slate-600">
-                  <li>Mở <a href="https://script.google.com" target="_blank" className="text-blue-600 underline font-bold italic">Google Apps Script</a>.</li>
-                  <li>Dán mã Script bên dưới vào tệp <code>Code.gs</code>.</li>
-                  <li>Lấy ID thư mục Drive thay vào dòng 6.</li>
-                  <li>Triển khai Web App (Quyền: Anyone).</li>
-                </ol>
-                
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase block">Script xử lý (Copy):</label>
                   <div className="relative">
-                    <pre className="bg-slate-900 text-sky-400 p-4 rounded-lg text-[9px] overflow-x-auto border border-black max-h-64 overflow-y-auto font-mono scrollbar-thin">
+                    <pre className="bg-slate-900 text-sky-400 p-4 rounded-lg text-[9px] overflow-x-auto border border-black max-h-64 overflow-y-auto font-mono">
                       {APPS_SCRIPT_TEMPLATE}
                     </pre>
                     <button 
@@ -404,30 +403,61 @@ export default function App() {
 
         {step === AppStep.CAMERA && (
           <div className="fixed inset-0 bg-black z-[100] flex flex-col">
-            <div className="relative flex-1 bg-black overflow-hidden">
-              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-contain" />
+            <div className={`relative flex-1 bg-black overflow-hidden transition-all ${isFlashing ? 'opacity-30' : 'opacity-100'}`}>
+              <video 
+                ref={videoRef} 
+                autoPlay 
+                playsInline 
+                muted
+                className="w-full h-full object-contain" 
+              />
               <div className="absolute top-6 left-6 right-6 flex justify-between items-start pointer-events-none">
                 <div className="bg-black/60 border border-white/20 text-white p-3 rounded-lg backdrop-blur-md">
-                  <div className="text-[10px] font-bold opacity-70 uppercase mb-0.5">Số hiệu Container</div>
+                  <div className="text-[10px] font-bold opacity-70 uppercase mb-0.5">Container ID</div>
                   <div className="font-mono text-2xl font-bold tracking-widest">{formData.containerId}</div>
                   <div className="flex gap-4 mt-2">
                     <span className="text-[11px] font-bold bg-[#1e3a8a] px-2 py-0.5 rounded shadow-sm">{formData.team}</span>
+                    <span className="text-[11px] font-bold bg-green-600 px-2 py-0.5 rounded shadow-sm">{photos.length} ảnh</span>
                   </div>
                 </div>
                 <button onClick={stopCamera} className="bg-red-600 text-white p-3 rounded-lg pointer-events-auto active:scale-90 shadow-xl border border-red-500">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
-            </div>
-            <div className="h-40 bg-slate-900 flex items-center justify-around px-8 border-t border-slate-800">
-              <div className="w-16 h-16 rounded-lg border-2 border-white/10 overflow-hidden bg-black/40 shadow-inner flex items-center justify-center">
-                {photos.length > 0 ? <img src={photos[photos.length-1].base64} className="w-full h-full object-cover" /> : <div className="text-slate-600 font-black text-xl">QC</div>}
+
+              {/* Toast thông báo đã chụp */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 overflow-x-auto max-w-[90%] px-2">
+                {photos.slice(-5).map((p, i) => (
+                    <div key={p.id} className="w-12 h-12 rounded border border-white/30 overflow-hidden shrink-0 shadow-lg animate-fadeIn">
+                        <img src={p.base64} className="w-full h-full object-cover" />
+                    </div>
+                ))}
               </div>
-              <button onClick={capturePhoto} className="w-20 h-20 bg-white rounded-full flex items-center justify-center active:scale-95 border-[6px] border-slate-700 shadow-2xl transition-transform">
-                <div className="w-14 h-14 rounded-full border-2 border-slate-300"></div>
+            </div>
+            
+            <div className="h-44 bg-slate-900 flex items-center justify-around px-8 border-t border-slate-800 shrink-0">
+              <div className="w-16 h-16 rounded-lg border-2 border-white/10 overflow-hidden bg-black/40 shadow-inner flex items-center justify-center">
+                {photos.length > 0 ? (
+                    <img src={photos[photos.length-1].base64} className="w-full h-full object-cover" />
+                ) : (
+                    <div className="text-slate-600 font-black text-xl">QC</div>
+                )}
+              </div>
+              
+              <button 
+                onClick={capturePhoto} 
+                className="w-24 h-24 bg-white rounded-full flex items-center justify-center active:scale-90 border-[8px] border-slate-700 shadow-2xl transition-transform"
+              >
+                <div className="w-16 h-16 rounded-full border-2 border-slate-300"></div>
               </button>
-              <button onClick={stopCamera} className="w-16 h-16 bg-[#1e3a8a] rounded-xl flex items-center justify-center text-white active:scale-90 shadow-lg border border-blue-500">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+              
+              <button 
+                onClick={stopCamera} 
+                className="w-16 h-16 bg-green-600 rounded-xl flex items-center justify-center text-white active:scale-90 shadow-lg border border-green-500"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
               </button>
             </div>
             <canvas ref={canvasRef} className="hidden" />
@@ -437,69 +467,70 @@ export default function App() {
         {step === AppStep.REVIEW && (
           <div className="space-y-6 animate-fadeIn">
             <div className="bg-white p-5 rounded-xl border border-slate-200 flex justify-between items-start shadow-sm relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full -mr-16 -mt-16 -z-10 opacity-50"></div>
               <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Kiểm tra thông tin</label>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Dữ liệu nghiệm thu</label>
                 <h2 className="text-3xl font-mono font-bold text-slate-900">{formData.containerId}</h2>
                 <div className="flex gap-3 mt-2">
-                   <span className="text-[12px] font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded uppercase border border-blue-100 shadow-sm">Tổ: {formData.team}</span>
+                   <span className="text-[12px] font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded uppercase border border-blue-100">Tổ: {formData.team}</span>
                 </div>
               </div>
-              <button onClick={() => setStep(AppStep.FORM)} className="text-blue-700 text-[11px] font-bold uppercase border-b border-blue-700 active:opacity-60 transition-opacity">Sửa số</button>
+              <button onClick={() => setStep(AppStep.FORM)} className="text-blue-700 text-[11px] font-bold uppercase border-b border-blue-700">Sửa số</button>
             </div>
+            
             <div className="grid grid-cols-2 gap-3">
               {photos.map(p => (
-                <div key={p.id} className="bg-white rounded-lg overflow-hidden border border-slate-200 relative aspect-square shadow-sm group">
+                <div key={p.id} className="bg-white rounded-lg overflow-hidden border border-slate-200 relative aspect-square shadow-sm">
                   <img src={p.base64} className="w-full h-full object-cover" />
                   <button onClick={() => setPhotos(x => x.filter(a => a.id !== p.id))} className="absolute top-2 right-2 bg-red-600 text-white p-1.5 rounded-md shadow-lg active:scale-90 transition-all">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
               ))}
-              <button onClick={startCamera} className="aspect-square border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 bg-slate-50 hover:bg-white transition-colors active:scale-95 shadow-inner">
+              <button onClick={startCamera} className="aspect-square border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center text-slate-400 bg-slate-50 active:bg-white transition-colors active:scale-95">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                <span className="text-[10px] font-bold uppercase tracking-widest">Chụp thêm</span>
+                <span className="text-[10px] font-bold uppercase">Chụp tiếp</span>
               </button>
             </div>
-            <button onClick={simulateUpload} className="w-full bg-green-600 text-white font-bold py-5 rounded-xl shadow-lg text-lg uppercase tracking-wider flex items-center justify-center gap-3 active:scale-[0.98] transition-transform">
+            
+            <button onClick={simulateUpload} className="w-full bg-green-600 text-white font-bold py-5 rounded-xl shadow-lg text-lg uppercase tracking-wider flex items-center justify-center gap-3 active:scale-[0.98]">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-              Đồng bộ Drive
+              Lưu toàn bộ & Gửi
             </button>
           </div>
         )}
 
         {step === AppStep.UPLOADING && (
           <div className="flex flex-col items-center justify-center h-full space-y-8 animate-fadeIn text-center py-10">
-            <div className="w-48 h-48 border-[12px] border-slate-100 border-t-[#1e3a8a] rounded-full animate-spin transition-all shadow-inner relative">
+            <div className="w-48 h-48 border-[12px] border-slate-100 border-t-[#1e3a8a] rounded-full animate-spin shadow-inner relative">
                <div className="absolute inset-0 flex items-center justify-center font-black text-2xl text-[#1e3a8a]">{uploadProgress}%</div>
             </div>
             <div className="space-y-4 max-w-xs w-full px-6">
-              <h2 className="text-2xl font-bold text-slate-900 uppercase italic">Đang đồng bộ Maersk Cloud</h2>
-              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden shadow-inner">
+              <h2 className="text-2xl font-bold text-slate-900 uppercase italic">Đang đồng bộ Cloud</h2>
+              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                 <div className="bg-[#1e3a8a] h-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
               </div>
-              <p className="text-[10px] font-bold text-slate-500 font-mono leading-relaxed bg-white/80 p-3 rounded-lg border border-slate-100 shadow-sm break-all">{uploadStatus}</p>
+              <p className="text-[10px] font-bold text-slate-500 font-mono break-all">{uploadStatus}</p>
             </div>
           </div>
         )}
 
         {step === AppStep.SUCCESS && (
           <div className="flex flex-col items-center justify-center h-full text-center space-y-10 py-10 px-4 animate-fadeIn">
-            <div className="w-28 h-28 bg-green-100 text-green-600 rounded-full flex items-center justify-center shadow-inner border-4 border-white animate-bounce-short">
+            <div className="w-28 h-28 bg-green-100 text-green-600 rounded-full flex items-center justify-center shadow-inner animate-bounce-short">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>
             </div>
             <div className="space-y-2">
-              <h2 className="text-3xl font-black text-slate-900 uppercase italic tracking-tight">Hoàn tất Nghiệm thu</h2>
-              <p className="text-slate-500 text-sm leading-relaxed px-6 font-medium">Hình ảnh container <span className="text-[#1e3a8a] font-bold">{formData.containerId}</span> đã được đẩy lên Google Drive.</p>
+              <h2 className="text-3xl font-black text-slate-900 uppercase italic">Gửi Maersk Thành Công</h2>
+              <p className="text-slate-500 text-sm">Hình ảnh container {formData.containerId} đã được lưu trữ.</p>
             </div>
-            <button onClick={reset} className="w-full bg-[#1e3a8a] text-white font-bold py-5 rounded-xl text-lg uppercase shadow-lg active:scale-[0.98] transition-all border border-blue-400">Tiếp tục container mới</button>
+            <button onClick={reset} className="w-full bg-[#1e3a8a] text-white font-bold py-5 rounded-xl text-lg uppercase shadow-lg active:scale-[0.98]">Nghiệm thu lượt mới</button>
           </div>
         )}
 
         {step === AppStep.REPORTS && (
           <div className="space-y-6 animate-fadeIn pb-10">
             <h2 className="text-2xl font-black text-[#1e3a8a] uppercase text-center flex flex-col gap-1 items-center italic">
-              Trung tâm báo cáo
+              Báo cáo sản lượng
               <span className="w-12 h-1 bg-[#1e3a8a] rounded-full"></span>
             </h2>
 
@@ -509,7 +540,7 @@ export default function App() {
                   <button
                     key={f}
                     onClick={() => setFilter(f as any)}
-                    className={`py-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all border active:scale-95 shadow-sm ${
+                    className={`py-3 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all border active:scale-95 ${
                       filter === f ? 'bg-[#1e3a8a] text-white border-[#1e3a8a] shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'
                     }`}
                   >
@@ -517,52 +548,20 @@ export default function App() {
                   </button>
                 ))}
               </div>
-              <button 
-                onClick={() => setFilter('custom')}
-                className={`w-full py-3 rounded-lg text-[11px] font-bold uppercase border transition-all active:scale-95 shadow-sm ${filter === 'custom' ? 'bg-[#1e3a8a] text-white border-[#1e3a8a] shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-              >
-                Lọc theo khoảng ngày
-              </button>
-
-              {filter === 'custom' && (
-                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 animate-fadeIn">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Từ ngày</label>
-                      <input 
-                        type="date" 
-                        className="w-full p-2 border border-slate-200 rounded text-sm font-bold bg-white outline-none focus:border-[#1e3a8a]"
-                        value={customRange.start}
-                        onChange={e => setCustomRange({...customRange, start: e.target.value})}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Đến ngày</label>
-                      <input 
-                        type="date" 
-                        className="w-full p-2 border border-slate-200 rounded text-sm font-bold bg-white outline-none focus:border-[#1e3a8a]"
-                        value={customRange.end}
-                        onChange={e => setCustomRange({...customRange, end: e.target.value})}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             <div className="bg-[#1e3a8a] p-8 rounded-2xl text-white shadow-xl flex items-center justify-between border-4 border-white/10 relative overflow-hidden group">
-               <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/5 rounded-full group-hover:scale-150 transition-transform duration-700"></div>
                <div className="space-y-1 relative z-10">
-                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Sản lượng nghiệm thu</p>
+                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Tổng container</p>
                   <h3 className="text-6xl font-black tabular-nums">{totalCompleted}</h3>
                </div>
-               <div className="text-right relative z-10">
-                  <p className="text-[12px] font-bold opacity-70 uppercase tracking-[0.2em]">Cont</p>
+               <div className="text-right relative z-10 opacity-70">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16" fill="currentColor" viewBox="0 0 24 24"><path d="M21 16.5c0 .38-.21.71-.53.88l-7.97 4.43c-.16.09-.33.14-.5.14s-.34-.05-.5-.14l-7.97-4.43c-.32-.17-.53-.5-.53-.88v-9c0-.38.21-.71.53-.88l7.97-4.43c.16-.09.33-.14.5-.14s.34.05.5.14l7.97 4.43c.32.17.53.5.53.88v9z" /></svg>
                </div>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm mb-10">
-              <div className="bg-slate-50 border-b border-slate-200 p-4 font-bold text-xs uppercase tracking-wider text-slate-500">Hiệu suất tổ đội</div>
+              <div className="bg-slate-50 border-b border-slate-200 p-4 font-bold text-xs uppercase tracking-wider text-slate-500">Chi tiết tổ đội</div>
               <div className="divide-y divide-slate-100">
                 {teamStats.map(team => (
                   <div key={team.name} className="p-5 flex flex-col gap-3 hover:bg-slate-50 transition-colors">
@@ -581,16 +580,16 @@ export default function App() {
         )}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white flex justify-around items-center border-t border-slate-200 h-16 shadow-[0_-10px_25px_rgba(0,0,0,0.06)] z-[60] shrink-0">
-         <button onClick={reset} className={`flex flex-col items-center gap-1 transition-all flex-1 py-2 active:scale-90 ${step === AppStep.FORM ? 'text-[#1e3a8a]' : 'text-slate-400'}`}>
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white flex justify-around items-center border-t border-slate-200 h-16 shadow-[0_-10px_25px_rgba(0,0,0,0.06)] z-[60]">
+         <button onClick={reset} className={`flex flex-col items-center gap-1 transition-all flex-1 py-2 active:scale-90 ${step === AppStep.FORM || step === AppStep.CAMERA || step === AppStep.REVIEW || step === AppStep.UPLOADING || step === AppStep.SUCCESS ? 'text-[#1e3a8a]' : 'text-slate-400'}`}>
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" /></svg>
             <span className="text-[10px] font-bold uppercase tracking-tighter">Tác nghiệp</span>
          </button>
          
          <div className="flex-1 flex justify-center">
-            <div onClick={step === AppStep.FORM ? startCamera : (step === AppStep.REPORTS || step === AppStep.SETTINGS ? reset : simulateUpload)} className="w-16 h-16 bg-[#1e3a8a] text-white rounded-full flex items-center justify-center -mt-10 border-8 border-[#f1f5f9] shadow-2xl cursor-pointer active:scale-90 transition-transform ring-4 ring-white/50">
+            <div onClick={step === AppStep.FORM ? startCamera : (step === AppStep.REPORTS || step === AppStep.SETTINGS ? reset : (step === AppStep.CAMERA ? stopCamera : simulateUpload))} className="w-16 h-16 bg-[#1e3a8a] text-white rounded-full flex items-center justify-center -mt-10 border-8 border-[#f1f5f9] shadow-2xl cursor-pointer active:scale-90 transition-transform ring-4 ring-white/50">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={step === AppStep.REPORTS || step === AppStep.SETTINGS ? "M12 4v16m8-8H4" : (step === AppStep.FORM ? "M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" : "M5 13l4 4L19 7")} />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={step === AppStep.REPORTS || step === AppStep.SETTINGS ? "M12 4v16m8-8H4" : (step === AppStep.FORM ? "M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" : (step === AppStep.CAMERA ? "M5 13l4 4L19 7" : "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"))} />
                 </svg>
             </div>
          </div>
