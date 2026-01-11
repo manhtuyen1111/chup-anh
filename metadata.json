@@ -1,0 +1,7 @@
+{
+  "name": "Container Repair Inspector",
+  "description": "A professional mobile application for inspecting container repairs, featuring AI-powered damage analysis and automated reporting.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
